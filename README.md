@@ -3,13 +3,14 @@
 [![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A small, fully dynamic Python client for the [NestAPI](https://nestapi.ir/api-usage) web services.
+A small, fully dynamic sync and async Python client for the [NestAPI](https://nestapi.ir/api-usage) web services.
 
 The library contains no service names: any method you call becomes a route. New services work the moment they go live, and removed ones need no code change.
 
 ## Features
 
 - **Dynamic routing:** `api.ip_info()` calls `ip-info` with no per-service classes or models
+- **Sync and async:** `NestApi` and `AsyncNestApi` share the same routing, parameters and errors
 - **Keyword or dict parameters**, with validation left to the server
 - **Immutable version switching** through `version()`
 - **Read-only responses** with dot-path access and `res["key"]` lookups
@@ -41,7 +42,34 @@ with NestApi() as api:
     print(result.get("input.age"))   # 30
 ```
 
-This client is synchronous only.
+## Async
+
+`AsyncNestApi` works exactly like `NestApi`: routing, parameters, versions, responses and errors are the same. Await every service call, as well as `call()`, `request()` and `close()`. `version()` is a plain method.
+
+```python
+import asyncio
+
+from nestapi import AsyncNestApi
+
+
+async def main() -> None:
+    async with AsyncNestApi() as api:
+        result = await api.bmi(age=30, weight=70, height=175)
+        print(result["bmi"])  # 22.86
+
+        # Run several calls at the same time
+        first, second = await asyncio.gather(
+            api.bmi(age=30, weight=70, height=175),
+            api.version(2).call("ip-info", {"ip": "8.8.8.8"}),
+        )
+
+
+asyncio.run(main())
+```
+
+Use one `AsyncNestApi` instance inside one event loop, because its connections are tied to that loop. To inject a client, pass an `httpx.AsyncClient`.
+
+The examples below use `NestApi`. With `AsyncNestApi`, add `await` to each call.
 
 ## Routing
 
@@ -174,7 +202,7 @@ api = NestApi(
     version=1,
     base_url="https://open.nestapi.ir",
     timeout=30,                  # Seconds, default client only
-    client=httpx.Client(),       # Optional
+    client=httpx.Client(),       # Optional; httpx.AsyncClient for AsyncNestApi
 )
 ```
 
@@ -182,7 +210,7 @@ SSL verification is always on in the default client, and there is no option to t
 
 ### Closing connections
 
-Call `close()` or use `with NestApi() as api:` to release the connection.
+Call `close()` or use `with NestApi() as api:` to release the connection. With the async client, use `await api.close()` or `async with AsyncNestApi() as api:`.
 
 - A client you inject stays yours: `close()` leaves it open.
 - Copies from `version()` share the client of the original. Closing a copy does nothing, so the original keeps working.
