@@ -1,12 +1,13 @@
-"""Dynamic client for the NestAPI web services."""
+"""Dynamic sync and async clients for the NestAPI web services."""
 
 from __future__ import annotations
 
 import copy
 import json
-from collections.abc import Callable, Iterator
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Coroutine, Iterator
 from types import TracebackType
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 from urllib.parse import quote
 
 import httpx
@@ -23,6 +24,8 @@ from .response import Response
 
 _DEFAULT_BASE_URL = "https://open.nestapi.ir"
 
+_HEADERS = {"Accept": "application/json"}
+
 _ERROR_CLASSES: dict[str, type[ApiError]] = {
     "NOT_FOUND": ServiceNotFoundError,
     "PARAM_NOT_FOUND": ValidationError,
@@ -33,30 +36,15 @@ _ERROR_CLASSES: dict[str, type[ApiError]] = {
 
 _MISSING: Any = object()
 
-_Self = TypeVar("_Self", bound="NestApi")
+_HttpClient = TypeVar("_HttpClient", bound=httpx.Client | httpx.AsyncClient)
+_Result = TypeVar("_Result")
+_Self = TypeVar("_Self", bound="_BaseNestApi[Any, Any]")
 
 
-class NestApi:
-    """Dynamic NestAPI client.
+class _BaseNestApi(ABC, Generic[_HttpClient, _Result]):
+    """Routing, versioning and copying shared by the sync and async clients.
 
-    Any attribute is a service: its name is turned into a route, so services
-    can come and go without changes here. Attributes starting with ``_`` are
-    never services and raise AttributeError.
-
-        api.ip_info(ip="8.8.8.8")        # GET /apis-1/ip-info?ip=8.8.8.8
-        api.bmi({"age": 30})             # GET /apis-1/bmi?age=30
-
-    Services named ``call``, ``request``, ``version`` or ``close`` collide with
-    the public methods below and must be reached through :meth:`call`, e.g.
-    ``api.call("version")``.
-
-    Args:
-        version: API version; the ``apis-`` prefix is added automatically.
-        base_url: Root of the API.
-        timeout: Seconds; applies to the default client only. An injected
-            client brings its own timeout.
-        client: Optional httpx client. It stays yours, so :meth:`close` leaves
-            it open.
+    ``_Result`` is what a call hands back: a Response, or a coroutine of one.
     """
 
     def __init__(
@@ -64,23 +52,23 @@ class NestApi:
         version: int = 1,
         base_url: str = _DEFAULT_BASE_URL,
         timeout: float = 30.0,
-        client: httpx.Client | None = None,
+        client: _HttpClient | None = None,
     ) -> None:
         self._version = _check_version(version)
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._injected = client is not None
         self._is_copy = False
-        self._client = client if client is not None else _default_client(timeout)
+        self._client = client if client is not None else self._new_client()
 
-    def __getattr__(self, name: str) -> Callable[..., Response]:
+    def __getattr__(self, name: str) -> Callable[..., _Result]:
         if name.startswith("_"):
             raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
         route = _to_route(name)
 
         # Positional-only, so that parameters called `params`, `self` or `name` go through.
-        def invoke(params: Any = _MISSING, /, **named: Any) -> Response:
+        def invoke(params: Any = _MISSING, /, **named: Any) -> _Result:
             if params is _MISSING:
                 return self.call(route, named)
 
@@ -94,32 +82,18 @@ class NestApi:
 
         return invoke
 
-    def call(self, service: str, params: dict[str, Any] | None = None) -> Response:
+    def call(self, service: str, params: dict[str, Any] | None = None) -> _Result:
         """GET a service by its exact route name, without any conversion."""
         return self.request("GET", service, params)
 
+    @abstractmethod
     def request(
         self,
         method: str,
         service: str,
         params: dict[str, Any] | None = None,
-    ) -> Response:
+    ) -> _Result:
         """Send any HTTP method. Parameters still go in the query string."""
-        url = self._build_url(service, {} if params is None else params)
-
-        if self._client.is_closed:
-            raise TransportError("Request failed: the HTTP client is closed.")
-
-        try:
-            response = self._client.request(
-                method.upper(),
-                url,
-                headers={"Accept": "application/json"},
-            )
-        except (httpx.HTTPError, httpx.InvalidURL) as e:
-            raise TransportError(f"Request failed: {e}") from e
-
-        return _parse(response.content, response.status_code)
 
     def version(self: _Self, version: int) -> _Self:
         """Return a copy bound to another API version; this instance is unchanged."""
@@ -127,27 +101,6 @@ class NestApi:
         clone._version = _check_version(version)
 
         return clone
-
-    def close(self) -> None:
-        """Close the HTTP connection.
-
-        Only the instance that created the default client closes it: on a copy
-        or with an injected client this does nothing. Closing the original also
-        ends the copies that share its client.
-        """
-        if not self._injected and not self._is_copy:
-            self._client.close()
-
-    def __enter__(self: _Self) -> _Self:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
 
     def __copy__(self: _Self) -> _Self:
         clone = object.__new__(type(self))
@@ -170,7 +123,11 @@ class NestApi:
         self.__dict__.update(state)
 
         if not self._injected:
-            self._client = _default_client(self._timeout)
+            self._client = self._new_client()
+
+    @abstractmethod
+    def _new_client(self) -> _HttpClient:
+        """Create the default httpx client."""
 
     def _build_url(self, service: str, params: dict[str, Any]) -> str:
         url = f"{self._base_url}/apis-{self._version}/{quote(service, safe='/')}"
@@ -178,9 +135,143 @@ class NestApi:
 
         return f"{url}?{query}" if query else url
 
+    def _prepare(self, service: str, params: dict[str, Any] | None) -> str:
+        url = self._build_url(service, {} if params is None else params)
 
-def _default_client(timeout: float) -> httpx.Client:
-    return httpx.Client(timeout=timeout, verify=True)
+        if self._client.is_closed:
+            raise TransportError("Request failed: the HTTP client is closed.")
+
+        return url
+
+    def _owns_client(self) -> bool:
+        return not self._injected and not self._is_copy
+
+
+class NestApi(_BaseNestApi[httpx.Client, Response]):
+    """Dynamic NestAPI client.
+
+    Any attribute is a service: its name is turned into a route, so services
+    can come and go without changes here. Attributes starting with ``_`` are
+    never services and raise AttributeError.
+
+        api.ip_info(ip="8.8.8.8")        # GET /apis-1/ip-info?ip=8.8.8.8
+        api.bmi({"age": 30})             # GET /apis-1/bmi?age=30
+
+    Services named ``call``, ``request``, ``version`` or ``close`` collide with
+    the public methods below and must be reached through :meth:`call`, e.g.
+    ``api.call("version")``.
+
+    Args:
+        version: API version; the ``apis-`` prefix is added automatically.
+        base_url: Root of the API.
+        timeout: Seconds; applies to the default client only. An injected
+            client brings its own timeout.
+        client: Optional httpx client. It stays yours, so :meth:`close` leaves
+            it open.
+    """
+
+    def request(
+        self,
+        method: str,
+        service: str,
+        params: dict[str, Any] | None = None,
+    ) -> Response:
+        """Send any HTTP method. Parameters still go in the query string."""
+        url = self._prepare(service, params)
+
+        try:
+            response = self._client.request(method.upper(), url, headers=_HEADERS)
+        except (httpx.HTTPError, httpx.InvalidURL) as e:
+            raise TransportError(f"Request failed: {e}") from e
+
+        return _parse(response.content, response.status_code)
+
+    def close(self) -> None:
+        """Close the HTTP connection.
+
+        Only the instance that created the default client closes it: on a copy
+        or with an injected client this does nothing. Closing the original also
+        ends the copies that share its client.
+        """
+        if self._owns_client():
+            self._client.close()
+
+    def __enter__(self: _Self) -> _Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def _new_client(self) -> httpx.Client:
+        return httpx.Client(timeout=self._timeout, verify=True)
+
+
+class AsyncNestApi(_BaseNestApi[httpx.AsyncClient, Coroutine[Any, Any, Response]]):
+    """Async counterpart of :class:`NestApi`, with the same routing and arguments.
+
+    Every service call, :meth:`call`, :meth:`request` and :meth:`close` must be
+    awaited; :meth:`version` is a plain method.
+
+        async with AsyncNestApi() as api:
+            result = await api.bmi(age=30, weight=70, height=175)
+
+    Services named ``call``, ``request``, ``version`` or ``close`` collide with
+    the public methods below and must be reached through :meth:`call`, e.g.
+    ``await api.call("version")``.
+
+    Args:
+        version: API version; the ``apis-`` prefix is added automatically.
+        base_url: Root of the API.
+        timeout: Seconds; applies to the default client only. An injected
+            client brings its own timeout.
+        client: Optional httpx async client. It stays yours, so :meth:`close`
+            leaves it open.
+    """
+
+    async def request(
+        self,
+        method: str,
+        service: str,
+        params: dict[str, Any] | None = None,
+    ) -> Response:
+        """Send any HTTP method. Parameters still go in the query string."""
+        url = self._prepare(service, params)
+
+        try:
+            response = await self._client.request(method.upper(), url, headers=_HEADERS)
+        except (httpx.HTTPError, httpx.InvalidURL) as e:
+            raise TransportError(f"Request failed: {e}") from e
+
+        return _parse(response.content, response.status_code)
+
+    async def close(self) -> None:
+        """Close the HTTP connection.
+
+        Only the instance that created the default client closes it: on a copy
+        or with an injected client this does nothing. Closing the original also
+        ends the copies that share its client.
+        """
+        if self._owns_client():
+            await self._client.aclose()
+
+    async def __aenter__(self: _Self) -> _Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.close()
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self._timeout, verify=True)
 
 
 def _check_version(version: int) -> int:

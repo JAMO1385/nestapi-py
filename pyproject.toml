@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "nestapi"
 version = "1.0.0"
-description = "Dynamic Python client for the NestAPI web services"
+description = "Dynamic sync and async Python client for the NestAPI web services"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Hossein Saberi", email = "devh3n@duck.com" }]
-keywords = ["nestapi", "api", "client", "httpx"]
+keywords = ["nestapi", "api", "client", "httpx", "async"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",

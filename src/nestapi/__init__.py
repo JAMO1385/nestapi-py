@@ -1,6 +1,6 @@
-"""Dynamic Python client for the NestAPI web services."""
+"""Dynamic sync and async Python clients for the NestAPI web services."""
 
-from .client import NestApi
+from .client import AsyncNestApi, NestApi
 from .exceptions import (
     ApiError,
     RateLimitError,
@@ -13,6 +13,7 @@ from .response import Response
 
 __all__ = [
     "ApiError",
+    "AsyncNestApi",
     "NestApi",
     "RateLimitError",
     "Response",
