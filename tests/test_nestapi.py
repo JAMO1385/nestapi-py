@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import pickle
+from collections.abc import Coroutine
 from typing import Any
 
 import httpx
@@ -10,6 +12,7 @@ import pytest
 
 from nestapi import (
     ApiError,
+    AsyncNestApi,
     NestApi,
     RateLimitError,
     Response,
@@ -93,8 +96,9 @@ def test_underscore_names_are_not_services(fake: Fake, name: str) -> None:
     assert not hasattr(fake.api(), name)
 
 
-def test_only_documented_public_names_exist() -> None:
-    public = {name for name in dir(NestApi) if not name.startswith("_")}
+@pytest.mark.parametrize("client_class", [NestApi, AsyncNestApi])
+def test_only_documented_public_names_exist(client_class: type[Any]) -> None:
+    public = {name for name in dir(client_class) if not name.startswith("_")}
 
     assert public == {"call", "request", "version", "close"}
 
@@ -781,3 +785,281 @@ def test_oversized_url_raises_transport_error(fake: Fake) -> None:
 def test_transport_error_is_not_api_error() -> None:
     assert not issubclass(TransportError, ApiError)
     assert not issubclass(ApiError, TransportError)
+
+
+# Async client
+
+
+class AsyncFake(Fake):
+    """Injected httpx async client answering every request with one canned response."""
+
+    def __init__(self, body: str | bytes = OK, status: int = 200) -> None:
+        super().__init__(body, status)
+        self.client = httpx.AsyncClient(transport=httpx.MockTransport(self.handle))  # type: ignore[assignment]
+
+    def api(self, version: int = 1) -> AsyncNestApi:  # type: ignore[override]
+        return AsyncNestApi(version=version, client=self.client)  # type: ignore[arg-type]
+
+
+def run(coroutine: Coroutine[Any, Any, Any]) -> Any:
+    return asyncio.run(coroutine)
+
+
+@pytest.fixture
+def async_fake() -> AsyncFake:
+    return AsyncFake()
+
+
+@pytest.mark.parametrize(
+    ("method", "route"),
+    [
+        ("ip_info", "ip-info"),
+        ("chatAi", "chat-ai"),
+        ("ChatAi", "chat-ai"),
+        ("chatAI", "chat-a-i"),
+    ],
+)
+def test_async_method_name_becomes_route(async_fake: AsyncFake, method: str, route: str) -> None:
+    run(getattr(async_fake.api(), method)())
+
+    assert async_fake.url == f"https://open.nestapi.ir/apis-1/{route}"
+    assert async_fake.requests[0].method == "GET"
+
+
+def test_async_underscore_names_are_not_services(async_fake: AsyncFake) -> None:
+    with pytest.raises(AttributeError):
+        async_fake.api()._x
+
+    assert not hasattr(async_fake.api(), "__wrapped__")
+
+
+def test_async_parameters_are_encoded_like_sync(async_fake: AsyncFake) -> None:
+    fake = Fake()
+    params = {"on": True, "off": False, "none": None, "ids": [1, 2], "x": {"k": 1}, "q": "a b سلام"}
+
+    run(async_fake.api().foo(params))
+    fake.api().foo(params)
+
+    assert async_fake.url == fake.url
+
+
+def test_async_named_arguments_may_match_internal_names(async_fake: AsyncFake) -> None:
+    run(async_fake.api().foo(self="a", name="b", params="c", version=3))
+
+    assert async_fake.query == "self=a&name=b&params=c&version=3"
+
+
+@pytest.mark.parametrize("arguments", [(30, 70), (30,), (None,), ([30],)])
+def test_async_unnamed_arguments_are_rejected(async_fake: AsyncFake, arguments: tuple[Any, ...]) -> None:
+    with pytest.raises(TypeError):
+        async_fake.api().bmi(*arguments)
+
+    assert async_fake.requests == []
+
+
+def test_async_mixing_dict_and_named_arguments_is_rejected(async_fake: AsyncFake) -> None:
+    with pytest.raises(TypeError):
+        async_fake.api().bmi({"age": 30}, weight=70)
+
+
+def test_async_non_string_keys_are_rejected(async_fake: AsyncFake) -> None:
+    with pytest.raises(TypeError):
+        run(async_fake.api().bmi({1: "a"}))
+
+    assert async_fake.requests == []
+
+
+def test_async_call_uses_exact_route(async_fake: AsyncFake) -> None:
+    run(async_fake.api().call("version", {"q": "x"}))
+
+    assert async_fake.url == "https://open.nestapi.ir/apis-1/version?q=x"
+
+
+def test_async_service_name_cannot_change_the_url(async_fake: AsyncFake) -> None:
+    run(async_fake.api().call("a b?x=1#y"))
+
+    assert async_fake.url == "https://open.nestapi.ir/apis-1/a%20b%3Fx%3D1%23y"
+
+
+def test_async_request_sends_method_and_keeps_params_in_query(async_fake: AsyncFake) -> None:
+    run(async_fake.api().request("post", "upload-file", {"a": 1}))
+
+    request = async_fake.requests[0]
+    assert request.method == "POST"
+    assert request.url.query == b"a=1"
+    assert request.content == b""
+    assert request.headers["accept"] == "application/json"
+
+
+def test_async_version_returns_copy_and_leaves_original_unchanged(async_fake: AsyncFake) -> None:
+    api = async_fake.api()
+    other = api.version(3)
+
+    assert other is not api
+    assert type(other) is AsyncNestApi
+
+    run(other.bmi())
+    assert "/apis-3/bmi" in async_fake.url
+
+    run(api.bmi())
+    assert "/apis-1/bmi" in async_fake.url
+
+
+@pytest.mark.parametrize(("version", "error"), [(0, ValueError), (True, TypeError), ("1", TypeError)])
+def test_async_invalid_version_is_rejected(version: Any, error: type[Exception]) -> None:
+    with pytest.raises(error):
+        AsyncNestApi(version=version)
+
+
+def test_async_response(async_fake: AsyncFake) -> None:
+    response = run(async_fake.api().bmi())
+
+    assert isinstance(response, Response)
+    assert response["bmi"] == 22.86
+    assert response.get("items.0.id") == 7
+    assert response.meta == {"page": 2}
+
+
+def test_async_calls_run_concurrently() -> None:
+    active = 0
+    peak = 0
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return httpx.Response(200, content=OK.encode())
+
+    async def main() -> list[Response]:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+        async with AsyncNestApi(client=client) as api:
+            return await asyncio.gather(*(api.bmi(age=i) for i in range(5)))
+
+    assert len(run(main())) == 5
+    assert peak == 5
+
+
+@pytest.mark.parametrize(
+    ("code", "status", "error_class"),
+    [
+        ("NOT_FOUND", 404, ServiceNotFoundError),
+        ("PARAM_NOT_FOUND", 400, ValidationError),
+        ("VALIDATION_ERROR", 422, ValidationError),
+        ("RATE_LIMITED", 429, RateLimitError),
+        ("RATE_LIMIT_EXCEEDED", 429, RateLimitError),
+        ("RATE_LIMITED", 503, RateLimitError),
+        ("DATABASE_ERROR", 500, ServerError),
+        ("INVALID_IP", 400, ApiError),
+    ],
+)
+def test_async_error_mapping(code: str, status: int, error_class: type[ApiError]) -> None:
+    body = json.dumps({"success": False, "error": {"code": code, "message": "m", "details": ["x"]}})
+
+    with pytest.raises(ApiError) as caught:
+        run(AsyncFake(body, status).api().foo())
+
+    assert type(caught.value) is error_class
+    assert caught.value.error_code == code
+    assert caught.value.status == status
+    assert caught.value.details == ["x"]
+
+
+@pytest.mark.parametrize("body", ["<html>", "", "[1,2]", "{}", '{"success":"true"}'])
+def test_async_malformed_body_raises_transport_error(body: str) -> None:
+    with pytest.raises(TransportError):
+        run(AsyncFake(body).api().foo())
+
+
+def test_async_network_failure_raises_transport_error() -> None:
+    failure = httpx.ConnectError("Connection refused")
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise failure
+
+    api = AsyncNestApi(client=httpx.AsyncClient(transport=httpx.MockTransport(fail)))
+
+    with pytest.raises(TransportError) as caught:
+        run(api.bmi())
+
+    assert caught.value.__cause__ is failure
+
+
+def test_async_default_client_settings() -> None:
+    api = AsyncNestApi()
+    assert api._client.timeout == httpx.Timeout(30.0)
+    run(api.close())
+
+    api = AsyncNestApi(timeout=5)
+    assert api._client.timeout == httpx.Timeout(5)
+    run(api.close())
+
+
+def test_async_context_manager_closes_default_client() -> None:
+    async def main() -> httpx.AsyncClient:
+        async with AsyncNestApi() as api:
+            return api._client
+
+    assert run(main()).is_closed
+
+
+def test_async_close_leaves_injected_client_open(async_fake: AsyncFake) -> None:
+    async def main() -> None:
+        async with async_fake.api() as api:
+            await api.bmi()
+
+        await api.close()
+        await api.bmi()
+
+    run(main())
+
+    assert not async_fake.client.is_closed
+
+
+def test_async_closing_a_copy_keeps_the_original_working() -> None:
+    async def main() -> None:
+        api = AsyncNestApi()
+        other = api.version(2)
+
+        assert other._client is api._client
+
+        await other.close()
+        async with other:
+            pass
+        await copy.copy(api).close()
+        assert not api._client.is_closed
+
+        await api.close()
+        assert api._client.is_closed
+
+        with pytest.raises(TransportError):
+            await other.bmi()
+
+    run(main())
+
+
+@pytest.mark.parametrize("clone", [copy.deepcopy, lambda a: pickle.loads(pickle.dumps(a))])
+def test_async_deep_clone_gets_its_own_client(clone: Any) -> None:
+    api = AsyncNestApi(version=4, timeout=9)
+    other = clone(api)
+
+    assert type(other) is AsyncNestApi
+    assert other._client is not api._client
+    assert isinstance(other._client, httpx.AsyncClient)
+    assert other._client.timeout == httpx.Timeout(9)
+
+    run(other.close())
+    assert not api._client.is_closed
+    run(api.close())
+
+
+def test_sync_and_async_clients_work_side_by_side() -> None:
+    fake = Fake()
+    async_fake = AsyncFake()
+
+    fake.api().bmi(age=30)
+    run(async_fake.api().bmi(age=30))
+
+    assert fake.url == async_fake.url
