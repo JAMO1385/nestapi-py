@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-11-03
+
+### Changed
+
+- Simplified the PyPI and Python version badges in the README.
+
 ## [1.0.0] - 2026-11-03
 
 ### Added
@@ -14,4 +20,5 @@ All notable changes to this project are documented here. The format follows
 - Typed exceptions mapped from the API's `error.code`.
 - `py.typed` marker for type checkers.
 
+[1.0.1]: https://github.com/devh3n/nestapi-py/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/devh3n/nestapi-py/releases/tag/v1.0.0
