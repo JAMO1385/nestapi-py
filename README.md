@@ -1,9 +1,9 @@
 # NestAPI Python Client
 
-[![PyPI](https://img.shields.io/pypi/v/nestapi?logo=pypi&logoColor=white)](https://pypi.org/project/nestapi/)
-[![Python Version](https://img.shields.io/pypi/pyversions/nestapi?logo=python&logoColor=white)](https://pypi.org/project/nestapi/)
+[![PyPI](https://img.shields.io/pypi/v/nestapi-py?logo=pypi&logoColor=white)](https://pypi.org/project/nestapi-py/)
+[![Python Version](https://img.shields.io/pypi/pyversions/nestapi-py?logo=python&logoColor=white)](https://pypi.org/project/nestapi-py/)
 [![CI](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml/badge.svg)](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/devh3n/nestapi-py/blob/main/LICENSE)
 
 A small, fully dynamic sync and async Python client for the [NestAPI](https://nestapi.ir/api-usage) web services.
 
@@ -27,8 +27,10 @@ The library contains no service names: any method you call becomes a route. New 
 ## Installation
 
 ```bash
-pip install nestapi
+pip install nestapi-py
 ```
+
+The package is published as `nestapi-py` and imported as `nestapi`.
 
 ## Quick start
 
@@ -234,4 +236,4 @@ pytest
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](https://github.com/devh3n/nestapi-py/blob/main/LICENSE).

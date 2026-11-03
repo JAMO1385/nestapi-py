@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nestapi"
+name = "nestapi-py"
 dynamic = ["version"]
 description = "Dynamic sync and async Python client for the NestAPI web services"
 readme = "README.md"
