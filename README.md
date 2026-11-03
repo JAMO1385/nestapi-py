@@ -1,6 +1,8 @@
 # NestAPI Python Client
 
-[![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyPI](https://img.shields.io/pypi/v/nestapi?logo=pypi&logoColor=white)](https://pypi.org/project/nestapi/)
+[![Python Version](https://img.shields.io/pypi/pyversions/nestapi?logo=python&logoColor=white)](https://pypi.org/project/nestapi/)
+[![CI](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml/badge.svg)](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A small, fully dynamic sync and async Python client for the [NestAPI](https://nestapi.ir/api-usage) web services.
@@ -24,10 +26,8 @@ The library contains no service names: any method you call becomes a route. New 
 
 ## Installation
 
-From a checkout of this repository:
-
 ```bash
-pip install .
+pip install nestapi
 ```
 
 ## Quick start
@@ -225,6 +225,12 @@ pip install -e ".[dev]"
 ```bash
 pytest
 ```
+
+## Releasing
+
+1. Bump `__version__` in `src/nestapi/__init__.py` and add an entry to `CHANGELOG.md`.
+2. Commit, then create a GitHub release with a tag such as `v1.0.1`.
+3. The `Publish to PyPI` workflow builds the package and uploads it through PyPI trusted publishing.
 
 ## License
 

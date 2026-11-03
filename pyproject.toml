@@ -4,33 +4,51 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nestapi"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Dynamic sync and async Python client for the NestAPI web services"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Hossein Saberi", email = "devh3n@duck.com" }]
+maintainers = [{ name = "Hossein Saberi", email = "devh3n@duck.com" }]
 keywords = ["nestapi", "api", "client", "httpx", "async"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
+    "Framework :: AsyncIO",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 dependencies = ["httpx>=0.27,<1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "build>=1.2", "twine>=6"]
 
 [project.urls]
 Homepage = "https://nestapi.ir"
+Documentation = "https://github.com/devh3n/nestapi-py#readme"
+Repository = "https://github.com/devh3n/nestapi-py"
+Issues = "https://github.com/devh3n/nestapi-py/issues"
+Changelog = "https://github.com/devh3n/nestapi-py/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/nestapi/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nestapi"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/nestapi", "tests", "README.md", "CHANGELOG.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

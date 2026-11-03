@@ -11,6 +11,8 @@ from .exceptions import (
 )
 from .response import Response
 
+__version__ = "1.0.0"
+
 __all__ = [
     "ApiError",
     "AsyncNestApi",
@@ -21,4 +23,5 @@ __all__ = [
     "ServiceNotFoundError",
     "TransportError",
     "ValidationError",
+    "__version__",
 ]
