@@ -1,7 +1,7 @@
 # NestAPI Python Client
 
-[![PyPI](https://img.shields.io/pypi/v/nestapi-py?logo=pypi&logoColor=white)](https://pypi.org/project/nestapi-py/)
-[![Python Version](https://img.shields.io/pypi/pyversions/nestapi-py?logo=python&logoColor=white)](https://pypi.org/project/nestapi-py/)
+[![PyPI](https://img.shields.io/pypi/v/nestapi-py)](https://pypi.org/project/nestapi-py/)
+[![Python Version](https://img.shields.io/pypi/pyversions/nestapi-py)](https://pypi.org/project/nestapi-py/)
 [![CI](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml/badge.svg)](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/devh3n/nestapi-py/blob/main/LICENSE)
 
