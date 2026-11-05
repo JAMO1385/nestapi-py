@@ -1,239 +1,195 @@
-# NestAPI Python Client
+# NestAPI Python
 
-[![PyPI](https://img.shields.io/pypi/v/nestapi-py)](https://pypi.org/project/nestapi-py/)
-[![Python Version](https://img.shields.io/pypi/pyversions/nestapi-py)](https://pypi.org/project/nestapi-py/)
-[![CI](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml/badge.svg)](https://github.com/devh3n/nestapi-py/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/devh3n/nestapi-py/blob/main/LICENSE)
-
-A small, fully dynamic sync and async Python client for the [NestAPI](https://nestapi.ir/api-usage) web services.
-
-The library contains no service names: any method you call becomes a route. New services work the moment they go live, and removed ones need no code change.
+A Python SDK for the [NestAPI](https://nestapi.ir) web services, featuring dynamic routing, synchronous and asynchronous clients, and structured error handling.
 
 ## Features
 
-- **Dynamic routing:** `api.ip_info()` calls `ip-info` with no per-service classes or models
-- **Sync and async:** `NestApi` and `AsyncNestApi` share the same routing, parameters and errors
-- **Keyword or dict parameters**, with validation left to the server
-- **Immutable version switching** through `version()`
-- **Read-only responses** with dot-path access and `res["key"]` lookups
-- **Typed exceptions** mapped from the API's `error.code`
-- **Fully typed**, and built on `httpx` with your own client as an option
+- **Dynamic routing:** Method names are automatically converted to API routes (for example, `api.chat_ai()` maps to `/apis-1/chat-ai`).
+- **Sync and async clients:** Use `NestApi` for synchronous requests, `AsyncNestApi` for asynchronous requests, or `NestApiRequest` for automatic dispatch.
+- **Connection pooling:** Efficiently manages HTTP sessions and connections with `httpx`.
+- **Convenient response object:** Supports dictionary and list access, as well as dot-path lookup such as `res.get("user.profile.name")`.
+- **Typed exceptions:** Categorizes API and network errors using API error codes and HTTP status codes.
 
-## Requirements
+## What makes this version better
 
-- Python 3.10 or higher
-- [httpx](https://www.python-httpx.org/), installed automatically
+Compared with [`devh3n/nestapi-py`](https://github.com/devh3n/nestapi-py), this version retains the dynamic-routing approach and adds:
 
-## Installation
+- Compatibility with the original `NestApi` exception names and attributes.
+- Machine-readable `error.code` and `error.details` preserved on exceptions.
+- Safer handling of empty, HTML, and malformed error responses.
+- Support for all successful 2xx responses, not only HTTP 200.
+- Validation of API versions and URL quoting for dynamic routes.
+- A ready-to-use development extra and pytest configuration.
+
+## Requirements and installation
+
+Install the project and its dependencies from the project root:
 
 ```bash
-pip install nestapi-py
+pip install .
 ```
 
-The package is published as `nestapi-py` and imported as `nestapi`.
-
-## Quick start
-
-```python
-from nestapi import NestApi
-
-with NestApi() as api:
-    result = api.bmi(age=30, weight=70, height=175)
-
-    print(result["bmi"])             # 22.86
-    print(result.get("input.age"))   # 30
-```
-
-## Async
-
-`AsyncNestApi` works exactly like `NestApi`: routing, parameters, versions, responses and errors are the same. Await every service call, as well as `call()`, `request()` and `close()`. `version()` is a plain method.
-
-```python
-import asyncio
-
-from nestapi import AsyncNestApi
-
-
-async def main() -> None:
-    async with AsyncNestApi() as api:
-        result = await api.bmi(age=30, weight=70, height=175)
-        print(result["bmi"])  # 22.86
-
-        # Run several calls at the same time
-        first, second = await asyncio.gather(
-            api.bmi(age=30, weight=70, height=175),
-            api.version(2).call("ip-info", {"ip": "8.8.8.8"}),
-        )
-
-
-asyncio.run(main())
-```
-
-Use one `AsyncNestApi` instance inside one event loop, because its connections are tied to that loop. To inject a client, pass an `httpx.AsyncClient`.
-
-The examples below use `NestApi`. With `AsyncNestApi`, add `await` to each call.
-
-## Routing
-
-The route is built from the method name. Every `_` becomes `-`, every uppercase letter except the first starts a new `-` segment, and the result is lowercase.
-
-| Method | Route |
-|---|---|
-| `ip_info` | `ip-info` |
-| `search_shazam` | `search-shazam` |
-| `chatAi`, `ChatAi` | `chat-ai` |
-| `chatAI` | `chat-a-i` |
-
-Names starting with `_` are not services and raise `AttributeError`.
-
-Pass parameters as keyword arguments or as a single dict. The dict form is needed for names that are Python keywords, such as `from` or `in`.
-
-```python
-api.bmi(age=30, weight=70, height=175)
-api.bmi({"age": 30, "weight": 70, "height": 175})
-
-api.convert({"from": "USD", "in": "EUR"})
-
-api.bmi(30, 70)                  # TypeError: arguments must be named
-api.bmi({"age": 30}, weight=70)  # TypeError: use one form, not both
-api.bmi({1: "a"})                # TypeError: names must be strings
-```
-
-### Explicit calls
-
-```python
-# GET with the exact route name, no conversion
-api.call("ip-info", {"ip": "8.8.8.8"})
-
-# Any other HTTP method; parameters still go in the query string
-api.request("POST", "some-service", {"a": 1})
-```
-
-> [!NOTE]
-> Services named `call`, `request`, `version` or `close` collide with the client's own methods. Reach them through `call()`, for example `api.call("version")`.
-
-### Parameter values
-
-| Python value | Sent as | Notes |
-|---|---|---|
-| `True` / `False` | `x=true` / `x=false` | The server rejects `1`, `0`, `True` and `TRUE` |
-| `None` | Not sent | Also skipped inside lists and dicts |
-| `list` / `tuple` | `x=1&x=2` | Repeated keys. Not yet verified against the live API, as no documented service takes an array input |
-| `dict` | `x[key]=1` | Same format as the PHP client |
-
-Spaces are encoded as `%20`, and non-ASCII text is sent as UTF-8.
-
-## Versions
-
-The default version is `1`, and the `apis-` prefix is added for you. `version()` returns a copy and leaves the original instance unchanged. A version below `1` raises `ValueError`, and anything other than an `int`, including `bool`, raises `TypeError`.
-
-```python
-api = NestApi(version=2)
-
-v3 = api.version(3)
-```
-
-There is no automatic "latest version" mode. The `source.version` field in responses is unrelated to the version in the URL.
-
-## Responses
-
-A successful call returns a read-only `nestapi.Response`.
-
-```python
-result = api.bmi(age=30, weight=70, height=175)
-
-result.data                  # Dict, list, string or None
-result.meta                  # Optional, service-defined
-result.source                # {"name": "NestAPI", ...}
-
-result.get("input.age")      # 30
-result.get("input.nope", 0)  # 0
-result.get("items.0.title")  # Paths can index into lists
-
-result["bmi"]                # 22.86
-"bmi" in result              # True
-result["nope"]               # KeyError
-
-result.data = {}             # AttributeError
-result["bmi"] = 1            # TypeError
-del result["bmi"]            # TypeError
-```
-
-A key that exists with a null value gives `None`, not the default. If `data` is not a dict or list, `get()` returns the default value.
-
-## Error handling
-
-Branch on `error_code`, not on the message, because message text can change.
-
-| Exception | Raised for |
-|---|---|
-| `ServiceNotFoundError` | `NOT_FOUND`: unknown service or API version |
-| `ValidationError` | `PARAM_NOT_FOUND`, `VALIDATION_ERROR` |
-| `RateLimitError` | `RATE_LIMITED`, `RATE_LIMIT_EXCEEDED` |
-| `ServerError` | Any other code with HTTP status 500 or above |
-| `ApiError` | Base class of the above, and any other code such as `INVALID_IP` |
-| `TransportError` | Network failure, non-JSON body, or a body outside the API format |
-
-`TransportError` is separate from `ApiError`, so catch it as well if you want to handle every failure.
-
-```python
-from nestapi import ApiError, NestApi, TransportError, ValidationError
-
-try:
-    api.bmi(age=500, weight=70, height=175)
-except ValidationError as e:
-    e.error_code  # "VALIDATION_ERROR"
-    e.status      # 422
-    e.details     # {"query.age": "Must be less than or equal to 120"}
-except ApiError as e:
-    ...           # Any other error reported by the API
-except TransportError as e:
-    ...           # No usable response arrived; the cause is in e.__cause__
-```
-
-`details` is a list for `PARAM_NOT_FOUND` and a dict for `VALIDATION_ERROR`.
-
-## Configuration
-
-`NestApi()` works without any setup. Every option can be set through the constructor:
-
-```python
-import httpx
-
-api = NestApi(
-    version=1,
-    base_url="https://open.nestapi.ir",
-    timeout=30,                  # Seconds, default client only
-    client=httpx.Client(),       # Optional; httpx.AsyncClient for AsyncNestApi
-)
-```
-
-SSL verification is always on in the default client, and there is no option to turn it off.
-
-### Closing connections
-
-Call `close()` or use `with NestApi() as api:` to release the connection. With the async client, use `await api.close()` or `async with AsyncNestApi() as api:`.
-
-- A client you inject stays yours: `close()` leaves it open.
-- Copies from `version()` share the client of the original. Closing a copy does nothing, so the original keeps working.
-- Closing the original closes the shared client, and its copies then raise `TransportError`.
-
-## Testing
+For editable installation with development and testing tools:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-```bash
-pytest
+## Usage
+
+### 1. Synchronous client (recommended for synchronous code)
+
+```python
+from NestApi import NestApi
+
+# The context manager closes connections automatically.
+with NestApi() as api:
+    response = api.chat_ai(q="Hello, how are you?")
+    print("Status:", response.status_code)
+    print("AI response:", response.data)
+    print("Nested value:", response.get("ai.reply", "Not found"))
 ```
 
-## Releasing
+### 2. Asynchronous client (recommended for async applications)
 
-1. Bump `__version__` in `src/nestapi/__init__.py` and add an entry to `CHANGELOG.md`.
-2. Commit, then create a GitHub release with a tag such as `v1.0.1`.
-3. The `Publish to PyPI` workflow builds the package and uploads it through PyPI trusted publishing.
+```python
+import asyncio
+from NestApi import AsyncNestApi
+
+async def main():
+    async with AsyncNestApi() as api:
+        response = await api.bmi(age=25, weight=70, height=175)
+        print("BMI:", response.get("bmi"))
+
+asyncio.run(main())
+```
+
+### 3. Automatic sync/async dispatch
+
+```python
+from NestApi import NestApiRequest
+
+client = NestApiRequest()
+
+# In synchronous code, this runs synchronously.
+sync_response = client.ip_info(ip="8.8.8.8")
+print(sync_response.data)
+
+# In async code, it returns a coroutine that can be awaited.
+async def async_call():
+    async_response = await client.ip_info(ip="8.8.8.8")
+    print(async_response.data)
+```
+
+### 4. Switching API versions
+
+```python
+api = NestApi(version=1)
+v2_api = api.version(2)  # Routes requests through /apis-2/.
+```
+
+## Working with the response object
+
+Requests return a convenient `Response` object:
+
+```python
+response = api.chat_ai(q="test")
+
+response.status_code  # HTTP status code, e.g. 200
+response.data         # Main payload: dict, list, string, or None
+response.meta         # Response metadata
+response.source       # NestAPI service information
+response.raw          # Complete raw JSON response
+
+# Dot-path lookup:
+response.get("user.name")
+response.get("items.0.title")
+response.get("unknown.field", default="Not found")
+
+# Dictionary-style access:
+response["reply"]
+"reply" in response
+```
+
+## Exception handling
+
+Exceptions are selected based on the API error code and HTTP status code:
+
+```python
+from NestApi import (
+    NestApi,
+    ParamNotFoundError,
+    NotFoundError,
+    RateLimitError,
+    NetworkError,
+    APIResponseError,
+)
+
+with NestApi() as api:
+    try:
+        response = api.chat_ai(q="")
+    except ParamNotFoundError as exc:
+        print(f"Invalid parameter: [{exc.status_code}: {exc.error_code}] {exc.message}")
+    except NotFoundError:
+        print("The requested endpoint or resource was not found.")
+    except RateLimitError:
+        print("The request limit has been exceeded.")
+    except NetworkError as exc:
+        print(f"Network or connectivity error: {exc}")
+    except APIResponseError as exc:
+        print(f"API request failed: {exc}")
+```
+
+### Exception classes
+
+| Exception | HTTP status / cause |
+|---|---|
+| `ParamNotFoundError` | 400 — Required or valid query parameters are missing or invalid. |
+| `AuthenticationError` | 401 — Authentication is required or invalid. |
+| `PermissionDeniedError` | 403 — Access is denied. |
+| `NotFoundError` | 404 — The endpoint or resource was not found. |
+| `ValidationError` | 422 — The submitted data is invalid. |
+| `RateLimitError` | 429 — The request rate limit was exceeded. |
+| `URLtooLongError` | 431 — The request URL is too long. |
+| `InternalServerError` | 500 — An internal NestAPI server error occurred. |
+| `GatewayError` | 502 / 504 — A gateway error occurred. |
+| `ServiceUnavailableError` | 503 — The service is temporarily unavailable. |
+| `CloudflareError` | 520 — An unknown Cloudflare edge error occurred. |
+| `NetworkError` | Connection failure, timeout, or DNS error. |
+
+## Testing
+
+The project includes unit tests using `pytest` and `respx` to mock HTTP requests, so the tests do not need to call the live API.
+
+### Install test dependencies
+
+```bash
+pip install -e ".[dev]"
+```
+
+If the development extra is not configured, install the test packages directly:
+
+```bash
+pip install pytest pytest-asyncio respx
+```
+
+### Run the tests
+
+```bash
+# Run the full test suite
+pytest
+
+# Show each test name and its result
+pytest -v
+
+# Also display output captured from the tests
+pytest -v -s
+```
+
+### Test coverage
+
+`tests/test_nestapi.py` covers dynamic route conversion (`_to_route`), query serialization, `Response` behavior, synchronous and asynchronous clients, automatic dispatch through `NestApiRequest`, API error-code mapping, and simulated network failures.
 
 ## License
 
-Released under the [MIT License](https://github.com/devh3n/nestapi-py/blob/main/LICENSE).
+See the `LICENSE` file in the repository for license terms.
